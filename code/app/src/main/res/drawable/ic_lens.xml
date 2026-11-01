@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Outer circle (lens body) -->
+    <path
+        android:fillColor="#4285F4"
+        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,20c-4.42,0 -8,-3.58 -8,-8s3.58,-8 8,-8 8,3.58 8,8 -3.58,8 -8,8z" />
+
+    <!-- Inner circle (lens aperture) -->
+    <path
+        android:fillColor="#4285F4"
+        android:pathData="M12,6c-3.31,0 -6,2.69 -6,6s2.69,6 6,6 6,-2.69 6,-6 -2.69,-6 -6,-6zM12,16c-2.21,0 -4,-1.79 -4,-4s1.79,-4 4,-4 4,1.79 4,4 -1.79,4 -4,4z" />
+
+    <!-- Center dot -->
+    <path
+        android:fillColor="#4285F4"
+        android:pathData="M12,10c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2z" />
+
+    <!-- Corner brackets - top left -->
+    <path
+        android:strokeColor="#EA4335"
+        android:strokeWidth="1.5"
+        android:pathData="M3,8 L3,3 L8,3"
+        android:fillColor="#00000000" />
+
+    <!-- Corner brackets - top right -->
+    <path
+        android:strokeColor="#FBBC04"
+        android:strokeWidth="1.5"
+        android:pathData="M16,3 L21,3 L21,8"
+        android:fillColor="#00000000" />
+
+    <!-- Corner brackets - bottom right -->
+    <path
+        android:strokeColor="#34A853"
+        android:strokeWidth="1.5"
+        android:pathData="M21,16 L21,21 L16,21"
+        android:fillColor="#00000000" />
+
+    <!-- Corner brackets - bottom left -->
+    <path
+        android:strokeColor="#4285F4"
+        android:strokeWidth="1.5"
+        android:pathData="M8,21 L3,21 L3,16"
+        android:fillColor="#00000000" />
+</vector>

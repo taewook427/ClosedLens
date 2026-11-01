@@ -4,16 +4,12 @@ plugins {
 
 android {
     namespace = "com.example.k7closedlens"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.example.k7closedlens"
-        minSdk = 35
-        targetSdk = 36
+        minSdk = 26
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -37,7 +33,12 @@ android {
 
 dependencies {
     implementation(libs.appcompat)
+    implementation(libs.common)
     implementation(libs.material)
+    implementation(libs.constraintlayout)
+    implementation(libs.mlkit.text.recognition)
+    implementation(libs.mlkit.text.recognition.korean)
+    implementation(libs.mlkit.translate)
     testImplementation(libs.junit)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.ext.junit)
