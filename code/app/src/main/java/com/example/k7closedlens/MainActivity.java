@@ -1,187 +1,254 @@
 package com.example.k7closedlens;
 
 import android.Manifest;
-import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.widget.Button;
+import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.ProgressBar;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import com.google.mlkit.common.model.DownloadConditions;
-import com.google.mlkit.common.model.RemoteModelManager;
-import com.google.mlkit.nl.translate.TranslateLanguage;
-import com.google.mlkit.nl.translate.TranslateRemoteModel;
-import com.google.mlkit.nl.translate.Translation;
-import com.google.mlkit.nl.translate.Translator;
-import com.google.mlkit.nl.translate.TranslatorOptions;
+import com.example.k7closedlens.engine.Translator;
+import com.google.android.material.button.MaterialButton;
 
+import java.util.Locale;
+import java.util.concurrent.Executors;
+
+/**
+ * Minimal, modern controller for ClosedLens settings and service lifecycle.
+ */
 public class MainActivity extends AppCompatActivity {
 
-    private static final int REQUEST_OVERLAY_PERMISSION = 1001;
-    private static final int REQUEST_NOTIFICATION_PERMISSION = 1002;
+    public static final String MODEL_URL = "https://huggingface.co/Xenova/nllb-200-distilled-600M/tree/main";
 
+    public static final String[] LANG_CODES = {
+            "eng_Latn", "kor_Hang", "jpn_Jpan", "zho_Hans", "zho_Hant",
+            "spa_Latn", "fra_Latn", "deu_Latn", "rus_Cyrl", "ara_Arab",
+            "por_Latn", "ita_Latn", "vie_Latn", "ind_Latn", "tha_Thai"
+    };
+
+    public static final String[] LANG_NAMES = {
+            "English", "한국어", "日本語", "简体中文", "繁體中文",
+            "Español", "Français", "Deutsch", "Русский", "العربية",
+            "Português", "Italiano", "Tiếng Việt", "Bahasa Indonesia", "ไทย"
+    };
+
+    private View statusDot;
+    private TextView statusText, modelDesc;
     private ProgressBar progressBar;
-    private TextView statusText;
-    private Button startButton;
+    private MaterialButton importBtn;
 
-    private ActivityResultLauncher<Intent> mediaProjectionLauncher;
+    private ActivityResultLauncher<Intent> mediaLauncher;
+    private ActivityResultLauncher<Intent> importLauncher;
+    private ActivityResultLauncher<Intent> overlayLauncher;
 
-    private boolean modelsReady = false;
+    public static int getDefaultLangIndex() {
+        String sys = Locale.getDefault().getLanguage();
+        for (int i = 0; i < LANG_CODES.length; i++) {
+            if (LANG_CODES[i].startsWith(sys)) return i;
+        }
+        return 1; // default to Korean if not matched
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        progressBar = findViewById(R.id.progressBar);
+        statusDot = findViewById(R.id.statusDot);
         statusText = findViewById(R.id.statusText);
-        startButton = findViewById(R.id.startButton);
+        modelDesc = findViewById(R.id.modelDesc);
+        progressBar = findViewById(R.id.progressBar);
+        importBtn = findViewById(R.id.importBtn);
 
-        startButton.setEnabled(false);
+        setupLaunchers();
+        setupLanguageSpinner();
+        setupActions();
+        checkPermissions();
+        updateStatus();
+    }
 
-        startButton.setOnClickListener(v -> {
-            if (!Settings.canDrawOverlays(this)) {
-                requestOverlayPermission();
-                return;
-            }
-            requestScreenCapture();
-        });
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateStatus();
+    }
 
-        // Request notification permission for Android 13+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
-                        REQUEST_NOTIFICATION_PERMISSION);
-            }
-        }
-
-        mediaProjectionLauncher = registerForActivityResult(
+    private void setupLaunchers() {
+        mediaLauncher = registerForActivityResult(
                 new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
-                        // Start the screen capture service FIRST — it must call
-                        // startForeground(MEDIA_PROJECTION) before anything else.
-                        // Pass resultCode and resultData via Intent extras.
-                        Intent captureIntent = new Intent(this, ScreenCaptureService.class);
-                        captureIntent.putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, result.getResultCode());
-                        captureIntent.putExtra(ScreenCaptureService.EXTRA_DATA, result.getData());
-                        ContextCompat.startForegroundService(this, captureIntent);
+                res -> {
+                    if (res.getResultCode() == RESULT_OK && res.getData() != null) {
+                        Intent capIntent = new Intent(this, ScreenCaptureService.class);
+                        capIntent.putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, res.getResultCode());
+                        capIntent.putExtra(ScreenCaptureService.EXTRA_DATA, res.getData());
+                        ContextCompat.startForegroundService(this, capIntent);
 
-                        // Start the floating overlay service
-                        Intent floatingIntent = new Intent(this, FloatingService.class);
-                        ContextCompat.startForegroundService(this, floatingIntent);
-
-                        Toast.makeText(this, "ClosedLens 활성화됨", Toast.LENGTH_SHORT).show();
+                        startService(new Intent(this, FloatingService.class));
+                        Toast.makeText(this, R.string.service_started, Toast.LENGTH_SHORT).show();
                         moveTaskToBack(true);
                     } else {
-                        Toast.makeText(this, "화면 캡처 권한이 필요합니다", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, R.string.perm_denied, Toast.LENGTH_SHORT).show();
                     }
                 }
         );
 
-        // Request overlay permission if not granted
-        if (!Settings.canDrawOverlays(this)) {
-            requestOverlayPermission();
-        }
-
-        // Download ML Kit models
-        downloadModels();
-    }
-
-    private void requestOverlayPermission() {
-        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + getPackageName()));
-        startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION);
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_OVERLAY_PERMISSION) {
-            if (Settings.canDrawOverlays(this)) {
-                Toast.makeText(this, "오버레이 권한 허용됨", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "오버레이 권한이 필요합니다", Toast.LENGTH_SHORT).show();
-            }
-        }
-    }
-
-    private void requestScreenCapture() {
-        MediaProjectionManager projectionManager =
-                (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-        mediaProjectionLauncher.launch(projectionManager.createScreenCaptureIntent());
-    }
-
-    private void downloadModels() {
-        statusText.setText("ML Kit 모델 확인 중...");
-        progressBar.setVisibility(ProgressBar.VISIBLE);
-        progressBar.setIndeterminate(true);
-
-        TranslatorOptions options = new TranslatorOptions.Builder()
-                .setSourceLanguage(TranslateLanguage.ENGLISH)
-                .setTargetLanguage(TranslateLanguage.KOREAN)
-                .build();
-        Translator translator = Translation.getClient(options);
-
-        // Check if models are already downloaded
-        RemoteModelManager modelManager = RemoteModelManager.getInstance();
-        TranslateRemoteModel koModel = new TranslateRemoteModel.Builder(TranslateLanguage.KOREAN).build();
-        TranslateRemoteModel enModel = new TranslateRemoteModel.Builder(TranslateLanguage.ENGLISH).build();
-
-        modelManager.isModelDownloaded(koModel).addOnSuccessListener(koDownloaded -> {
-            modelManager.isModelDownloaded(enModel).addOnSuccessListener(enDownloaded -> {
-                if (koDownloaded && enDownloaded) {
-                    statusText.setText("모델 준비 완료 ✓");
-                    progressBar.setVisibility(ProgressBar.GONE);
-                    modelsReady = true;
-                    startButton.setEnabled(true);
-                    translator.close();
-                } else {
-                    statusText.setText("번역 모델 다운로드 중...");
-                    progressBar.setIndeterminate(false);
-                    progressBar.setProgress(0);
-
-                    DownloadConditions conditions = new DownloadConditions.Builder().build();
-
-                    // Download step 1: English model
-                    statusText.setText("영어 모델 다운로드 중...");
-                    progressBar.setProgress(10);
-
-                    translator.downloadModelIfNeeded(conditions)
-                            .addOnSuccessListener(unused -> {
-                                progressBar.setProgress(100);
-                                statusText.setText("모델 다운로드 완료 ✓");
-                                modelsReady = true;
-                                startButton.setEnabled(true);
-                                translator.close();
-                            })
-                            .addOnFailureListener(e -> {
-                                statusText.setText("모델 다운로드 실패: " + e.getMessage());
-                                progressBar.setVisibility(ProgressBar.GONE);
-                                translator.close();
-                            });
+        importLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                res -> {
+                    if (res.getResultCode() == RESULT_OK && res.getData() != null) {
+                        Uri uri = res.getData().getData();
+                        if (uri != null) importZip(uri);
+                    }
                 }
-            });
-        }).addOnFailureListener(e -> {
-            statusText.setText("모델 상태 확인 실패: " + e.getMessage());
-            progressBar.setVisibility(ProgressBar.GONE);
-            translator.close();
+        );
+
+        overlayLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                res -> {
+                    if (Settings.canDrawOverlays(this)) startLens();
+                }
+        );
+    }
+
+    private void setupLanguageSpinner() {
+        Spinner spinner = findViewById(R.id.langSpinner);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this, R.layout.spinner_item, LANG_NAMES
+        );
+        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+
+        SharedPreferences prefs = getSharedPreferences("closedlens_prefs", MODE_PRIVATE);
+        int savedIdx = prefs.getInt("target_lang_idx", getDefaultLangIndex());
+        spinner.setSelection(savedIdx);
+
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                prefs.edit().putInt("target_lang_idx", pos).apply();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> p) {}
         });
+    }
+
+    private void setupActions() {
+        MaterialButton copyBtn = findViewById(R.id.copyUrlBtn);
+        copyBtn.setOnClickListener(v -> {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(ClipData.newPlainText("Model URL", MODEL_URL));
+                Toast.makeText(this, R.string.link_copied, Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        importBtn.setOnClickListener(v -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("application/zip");
+            importLauncher.launch(intent);
+        });
+
+        MaterialButton startBtn = findViewById(R.id.startBtn);
+        startBtn.setOnClickListener(v -> startLens());
+
+        MaterialButton stopBtn = findViewById(R.id.stopBtn);
+        stopBtn.setOnClickListener(v -> stopLens());
+    }
+
+    private void startLens() {
+        if (!Settings.canDrawOverlays(this)) {
+            Intent intent = new Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())
+            );
+            overlayLauncher.launch(intent);
+            return;
+        }
+
+        // Pre-warm translation engine in background so first capture is instant
+        Executors.newSingleThreadExecutor().execute(() -> {
+            try {
+                if (Translator.isInstalled(this)) Translator.get().load(this);
+            } catch (Exception ignored) {}
+        });
+
+        MediaProjectionManager mgr = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        if (mgr != null) {
+            mediaLauncher.launch(mgr.createScreenCaptureIntent());
+        }
+    }
+
+    private void stopLens() {
+        stopService(new Intent(this, FloatingService.class));
+        stopService(new Intent(this, ScreenCaptureService.class));
+        Executors.newSingleThreadExecutor().execute(() -> Translator.get().release());
+        Toast.makeText(this, R.string.service_stopped, Toast.LENGTH_SHORT).show();
+    }
+
+    private void updateStatus() {
+        boolean ready = Translator.isInstalled(this);
+        if (ready) {
+            statusDot.setBackgroundResource(R.drawable.status_dot_ready);
+            statusText.setText(R.string.status_ready);
+            modelDesc.setText(R.string.status_model_ready);
+            modelDesc.setTextColor(0xFFE4E4E7);
+        } else {
+            statusDot.setBackgroundResource(R.drawable.status_dot_warning);
+            statusText.setText(R.string.status_no_model);
+            modelDesc.setText(R.string.status_model_missing);
+            modelDesc.setTextColor(0xFFF59E0B);
+        }
+    }
+
+    private void importZip(Uri uri) {
+        progressBar.setVisibility(View.VISIBLE);
+        modelDesc.setText(R.string.status_installing);
+        importBtn.setEnabled(false);
+
+        Executors.newSingleThreadExecutor().execute(() -> {
+            try {
+                Translator.importZip(this, uri);
+                runOnUiThread(() -> {
+                    progressBar.setVisibility(View.GONE);
+                    importBtn.setEnabled(true);
+                    updateStatus();
+                    Toast.makeText(this, R.string.status_install_done, Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    progressBar.setVisibility(View.GONE);
+                    importBtn.setEnabled(true);
+                    updateStatus();
+                    Toast.makeText(this, getString(R.string.status_install_failed, e.getMessage()), Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+    }
+
+    private void checkPermissions() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 100);
+        }
     }
 }

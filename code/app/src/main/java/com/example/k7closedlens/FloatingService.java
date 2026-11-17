@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.os.Build;
@@ -23,118 +24,103 @@ import androidx.core.app.NotificationCompat;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.IOException;
 
+/**
+ * 플로팅 렌즈 오버레이 버튼 관리 서비스
+ */
 public class FloatingService extends Service {
 
-    private static final String CHANNEL_ID = "closedlens_floating";
-    private static final int NOTIFICATION_ID = 1;
+    public static final String ACTION_STOP = "com.example.k7closedlens.STOP";
+    private static FloatingService instance;
 
-    private WindowManager windowManager;
-    private ImageView floatingButton;
+    private WindowManager wm;
+    private ImageView button;
+    private WindowManager.LayoutParams params;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        createNotificationChannel();
-        startForeground(NOTIFICATION_ID, createNotification());
-        createFloatingButton();
+        instance = this;
+        setupNotification();
+        setupButton();
     }
 
-    @Nullable
     @Override
-    public IBinder onBind(Intent intent) {
-        return null;
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        return START_STICKY;
     }
 
-    private void createNotificationChannel() {
-        NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                "ClosedLens 플로팅 버튼",
-                NotificationManager.IMPORTANCE_LOW
-        );
-        channel.setDescription("ClosedLens 플로팅 오버레이 서비스");
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        manager.createNotificationChannel(channel);
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        stopSelf();
     }
 
-    private Notification createNotification() {
-        Intent notificationIntent = new Intent(this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-                this, 0, notificationIntent,
-                PendingIntent.FLAG_IMMUTABLE
-        );
-
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("ClosedLens")
-                .setContentText("플로팅 버튼이 활성화되어 있습니다")
-                .setSmallIcon(R.drawable.ic_lens)
-                .setContentIntent(pendingIntent)
-                .setOngoing(true)
-                .build();
+    public static void setVisible(boolean visible) {
+        if (instance != null && instance.button != null) {
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (instance != null && instance.button != null) {
+                    instance.button.setVisibility(visible ? View.VISIBLE : View.GONE);
+                }
+            });
+        }
     }
 
-    private void createFloatingButton() {
-        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+    private void setupButton() {
+        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        button = new ImageView(this);
+        button.setImageResource(R.drawable.ic_lens);
+        button.setBackgroundResource(R.drawable.floating_button_bg);
 
-        floatingButton = new ImageView(this);
-        floatingButton.setImageResource(R.drawable.ic_lens);
-        floatingButton.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        float density = getResources().getDisplayMetrics().density;
+        int size = (int) (56 * density);
+        int pad = (int) (12 * density);
+        button.setPadding(pad, pad, pad, pad);
 
-        // Create a circular background
-        floatingButton.setBackgroundResource(R.drawable.floating_button_bg);
-        int size = dpToPx(56);
-        floatingButton.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
-
-        int layoutType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                size,
-                size,
-                layoutType,
+        params = new WindowManager.LayoutParams(
+                size, size,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT
         );
         params.gravity = Gravity.TOP | Gravity.START;
-        params.x = 50;
+        params.x = 40;
         params.y = 300;
 
-        windowManager.addView(floatingButton, params);
+        wm.addView(button, params);
 
-        // Touch listener for drag and click
-        floatingButton.setOnTouchListener(new View.OnTouchListener() {
-            private int initialX, initialY;
-            private float initialTouchX, initialTouchY;
-            private long touchStartTime;
+        button.setOnTouchListener(new View.OnTouchListener() {
+            private int initX, initY;
+            private float touchX, touchY;
+            private long touchTime;
             private boolean moved = false;
 
             @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                switch (event.getAction()) {
+            public boolean onTouch(View v, MotionEvent e) {
+                switch (e.getAction()) {
                     case MotionEvent.ACTION_DOWN:
-                        initialX = params.x;
-                        initialY = params.y;
-                        initialTouchX = event.getRawX();
-                        initialTouchY = event.getRawY();
-                        touchStartTime = System.currentTimeMillis();
+                        initX = params.x; initY = params.y;
+                        touchX = e.getRawX(); touchY = e.getRawY();
+                        touchTime = System.currentTimeMillis();
                         moved = false;
                         return true;
 
                     case MotionEvent.ACTION_MOVE:
-                        float dx = event.getRawX() - initialTouchX;
-                        float dy = event.getRawY() - initialTouchY;
-                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-                            moved = true;
-                        }
-                        params.x = initialX + (int) dx;
-                        params.y = initialY + (int) dy;
-                        windowManager.updateViewLayout(floatingButton, params);
+                        float dx = e.getRawX() - touchX;
+                        float dy = e.getRawY() - touchY;
+                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) moved = true;
+                        params.x = initX + (int) dx;
+                        params.y = initY + (int) dy;
+                        wm.updateViewLayout(button, params);
                         return true;
 
                     case MotionEvent.ACTION_UP:
-                        long duration = System.currentTimeMillis() - touchStartTime;
-                        if (!moved && duration < 300) {
-                            onFloatingButtonClick();
+                        if (!moved && (System.currentTimeMillis() - touchTime) < 300) {
+                            onClick();
                         }
                         return true;
                 }
@@ -143,67 +129,84 @@ public class FloatingService extends Service {
         });
     }
 
-    private void onFloatingButtonClick() {
-        // Hide the floating button temporarily
-        floatingButton.setVisibility(View.INVISIBLE);
+    private void onClick() {
+        button.setVisibility(View.GONE);
 
-        // Small delay to ensure button is hidden before capture
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            // Request screen capture from ScreenCaptureService
             if (ScreenCaptureService.instance != null) {
-                ScreenCaptureService.instance.captureScreen(bitmap -> {
-                    // Show button again
-                    new Handler(Looper.getMainLooper()).post(() ->
-                            floatingButton.setVisibility(View.VISIBLE));
-
-                    if (bitmap != null) {
-                        // Save bitmap to cache
-                        String path = saveBitmapToCache(bitmap);
+                ScreenCaptureService.instance.captureScreen(bmp -> {
+                    if (bmp != null) {
+                        String path = saveCache(bmp);
                         if (path != null) {
-                            Intent intent = new Intent(FloatingService.this, CaptureResultActivity.class);
-                            intent.putExtra("image_path", path);
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            startActivity(intent);
+                            Intent it = new Intent(FloatingService.this, CaptureResultActivity.class);
+                            it.putExtra("image_path", path);
+                            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(it);
+                            return;
                         }
                     }
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (button != null) button.setVisibility(View.VISIBLE);
+                    });
                 });
             } else {
-                floatingButton.setVisibility(View.VISIBLE);
+                button.setVisibility(View.VISIBLE);
             }
-        }, 200);
+        }, 150);
     }
 
-    private String saveBitmapToCache(Bitmap bitmap) {
+    private String saveCache(Bitmap bmp) {
         try {
-            File file = new File(getCacheDir(), "capture_" + System.currentTimeMillis() + ".png");
-            FileOutputStream fos = new FileOutputStream(file);
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
-            fos.flush();
-            fos.close();
-            return file.getAbsolutePath();
-        } catch (IOException e) {
-            e.printStackTrace();
+            File f = new File(getCacheDir(), "capture_" + System.currentTimeMillis() + ".png");
+            try (FileOutputStream fos = new FileOutputStream(f)) {
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, fos);
+                fos.flush();
+            }
+            return f.getAbsolutePath();
+        } catch (Exception e) {
             return null;
         }
     }
 
-    private int dpToPx(int dp) {
-        return (int) (dp * getResources().getDisplayMetrics().density);
+    private void setupNotification() {
+        String chId = "closedlens_float";
+        NotificationChannel ch = new NotificationChannel(chId, "Lens Overlay", NotificationManager.IMPORTANCE_LOW);
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        if (nm != null) nm.createNotificationChannel(ch);
+
+        Intent it = new Intent(this, MainActivity.class);
+        PendingIntent pi = PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE);
+
+        Intent stopIt = new Intent(this, FloatingService.class);
+        stopIt.setAction(ACTION_STOP);
+        PendingIntent stopPi = PendingIntent.getService(this, 1, stopIt, PendingIntent.FLAG_IMMUTABLE);
+
+        Notification notif = new NotificationCompat.Builder(this, chId)
+                .setContentTitle("ClosedLens Active")
+                .setContentText("Tap to open app | Tap lens to capture")
+                .setSmallIcon(R.drawable.ic_lens)
+                .setContentIntent(pi)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPi)
+                .setOngoing(true)
+                .build();
+
+        startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
     }
 
+    @Nullable
     @Override
-    public void onTaskRemoved(Intent rootIntent) {
-        super.onTaskRemoved(rootIntent);
-        // Stop screen capture service too
-        stopService(new Intent(this, ScreenCaptureService.class));
-        stopSelf();
-    }
+    public IBinder onBind(Intent intent) { return null; }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (floatingButton != null && windowManager != null) {
-            windowManager.removeView(floatingButton);
+        if (button != null && wm != null) {
+            try { wm.removeView(button); } catch (Exception ignored) {}
+            button = null;
         }
+        if (ScreenCaptureService.instance != null) {
+            ScreenCaptureService.instance.stopSelf();
+        }
+        instance = null;
     }
 }

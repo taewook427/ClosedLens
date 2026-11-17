@@ -1,4 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ClosedLens</string>
+    <string name="subtitle">On-Device Screen Translator</string>
+
+    <string name="status_ready">Ready</string>
+    <string name="status_no_model">Model required</string>
+    <string name="status_model_ready">NLLB-200 Distilled ONNX (Ready)</string>
+    <string name="status_model_missing">Model not found. Download &amp; import ZIP.</string>
+    <string name="status_installing">Extracting model files...</string>
+    <string name="status_install_done">Model installed successfully.</string>
+    <string name="status_install_failed">Installation failed: %s</string>
+
+    <string name="target_language">Destination Language</string>
+    <string name="copy_link">Download Link</string>
+    <string name="import_zip">Import ZIP</string>
+    <string name="start_lens">Start Lens</string>
+    <string name="stop_service">Stop Service</string>
+
+    <string name="link_copied">Download link copied to clipboard.</string>
+    <string name="service_started">ClosedLens service started.</string>
+    <string name="service_stopped">ClosedLens service stopped.</string>
+    <string name="perm_denied">Screen capture permission denied.</string>
+
+    <!-- Overlay viewer strings -->
+    <string name="drag_hint">Drag area to translate</string>
+    <string name="translating">Translating...</string>
+    <string name="translate_done">Done</string>
+    <string name="no_text">No text detected</string>
+    <string name="model_not_ready">Model not ready</string>
+    <string name="translate_failed">Translation failed</string>
+    <string name="btn_clear">Clear</string>
+    <string name="btn_close">Close</string>
 </resources>
